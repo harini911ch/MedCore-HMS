@@ -3,14 +3,19 @@ package com.medcore.medcore_backend.service;
 
 import com.medcore.medcore_backend.dto.PharmacyBatchRequest;
 import com.medcore.medcore_backend.dto.PharmacyBatchResponse;
+import com.medcore.medcore_backend.dto.PharmacyDispenseRequest;
+import com.medcore.medcore_backend.dto.PharmacyDispenseResponse;
 import com.medcore.medcore_backend.entity.Medicine;
 import com.medcore.medcore_backend.entity.PharmacyBatch;
+import com.medcore.medcore_backend.entity.PharmacyDispense;
 import com.medcore.medcore_backend.repository.MedicineRepository;
 import com.medcore.medcore_backend.repository.PharmacyBatchRepository;
+import com.medcore.medcore_backend.repository.PharmacyDispenseRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -19,13 +24,16 @@ public class PharmacyBatchService {
 
     private final PharmacyBatchRepository pharmacyBatchRepository;
     private final MedicineRepository medicineRepository;
+    private final PharmacyDispenseRepository pharmacyDispenseRepository;
 
     public PharmacyBatchService(
             PharmacyBatchRepository pharmacyBatchRepository,
-            MedicineRepository medicineRepository
+            MedicineRepository medicineRepository,
+            PharmacyDispenseRepository pharmacyDispenseRepository
     ) {
         this.pharmacyBatchRepository = pharmacyBatchRepository;
         this.medicineRepository = medicineRepository;
+        this.pharmacyDispenseRepository = pharmacyDispenseRepository;
     }
 
     @Transactional
@@ -144,7 +152,90 @@ public class PharmacyBatchService {
                 .toList();
     }
 
-    private void validatePrice(BigDecimal price, String fieldName) {
+    @Transactional
+    public PharmacyDispenseResponse dispenseMedicine(
+            UUID batchId,
+            PharmacyDispenseRequest request
+    ) {
+        if (batchId == null) {
+            throw new RuntimeException("Batch ID is required");
+        }
+
+        if (request == null
+                || request.getQuantity() == null
+                || request.getQuantity() <= 0) {
+            throw new RuntimeException(
+                    "Dispensing quantity must be greater than zero"
+            );
+        }
+
+        PharmacyBatch batch = pharmacyBatchRepository
+                .findByIdForUpdate(batchId)
+                .orElseThrow(() ->
+                        new RuntimeException("Pharmacy batch not found"));
+
+        if (!batch.getMedicine().isActive()) {
+            throw new RuntimeException(
+                    "Cannot dispense an inactive medicine"
+            );
+        }
+
+        if (batch.getExpiryDate().isBefore(LocalDate.now())) {
+            throw new RuntimeException(
+                    "Cannot dispense medicine from an expired batch"
+            );
+        }
+
+        int available = batch.getQuantityAvailable();
+        int requested = request.getQuantity();
+
+        if (available < requested) {
+            throw new RuntimeException(
+                    "Insufficient stock. Available: "
+                            + available
+                            + ", requested: "
+                            + requested
+            );
+        }
+
+        int remaining = available - requested;
+        batch.setQuantityAvailable(remaining);
+
+        // Save the inventory change and dispensing record atomically.
+        pharmacyBatchRepository.save(batch);
+
+        PharmacyDispense dispense = new PharmacyDispense();
+        dispense.setBatch(batch);
+        dispense.setQuantityDispensed(requested);
+        dispense.setRemainingQuantity(remaining);
+
+        PharmacyDispense savedDispense =
+                pharmacyDispenseRepository.save(dispense);
+
+        return new PharmacyDispenseResponse(savedDispense);
+    }
+
+    @Transactional(readOnly = true)
+    public List<PharmacyDispenseResponse> getDispensingHistory(
+            UUID hospitalId
+    ) {
+        if (hospitalId == null) {
+            throw new RuntimeException("Hospital ID is required");
+        }
+
+        return pharmacyDispenseRepository
+                .findByBatchMedicineHospitalIdOrderByDispensedAtDesc(
+                        hospitalId
+                )
+                .stream()
+                .map(PharmacyDispenseResponse::new)
+                .toList();
+    }
+
+    private void validatePrice(
+            BigDecimal price,
+            String fieldName
+    ) {
         if (price == null || price.compareTo(BigDecimal.ZERO) < 0) {
             throw new RuntimeException(
                     fieldName + " must be zero or greater"
@@ -152,3 +243,4 @@ public class PharmacyBatchService {
         }
     }
 }
+
