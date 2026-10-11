@@ -36,9 +36,9 @@ public class PrescriptionResponse {
         private String duration;
         private String instructions;
         private Integer quantity;
+        private Integer quantityDispensed;
 
         public ItemResponse(PrescriptionItem item) {
-
             this.id = item.getId();
             this.medicineId = item.getMedicine().getId();
             this.medicineName = item.getMedicine().getName();
@@ -49,6 +49,7 @@ public class PrescriptionResponse {
             this.duration = item.getDuration();
             this.instructions = item.getInstructions();
             this.quantity = item.getQuantity();
+            this.quantityDispensed = item.getQuantityDispensed();
         }
 
         public UUID getId() {
@@ -90,13 +91,16 @@ public class PrescriptionResponse {
         public Integer getQuantity() {
             return quantity;
         }
+
+        public Integer getQuantityDispensed() {
+            return quantityDispensed;
+        }
     }
 
     public static PrescriptionResponse fromEntity(
             Prescription prescription,
             List<PrescriptionItem> items
     ) {
-
         PrescriptionResponse response = new PrescriptionResponse();
 
         response.id = prescription.getId();
