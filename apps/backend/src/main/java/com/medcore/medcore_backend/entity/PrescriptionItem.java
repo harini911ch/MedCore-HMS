@@ -1,3 +1,4 @@
+
 package com.medcore.medcore_backend.entity;
 
 import jakarta.persistence.*;
@@ -33,6 +34,9 @@ public class PrescriptionItem {
     private String instructions;
 
     private Integer quantity;
+
+    @Column(name = "quantity_dispensed")
+    private Integer quantityDispensed = 0;
 
     public UUID getId() {
         return id;
@@ -92,5 +96,13 @@ public class PrescriptionItem {
 
     public void setQuantity(Integer quantity) {
         this.quantity = quantity;
+    }
+
+    public Integer getQuantityDispensed() {
+        return quantityDispensed == null ? 0 : quantityDispensed;
+    }
+
+    public void setQuantityDispensed(Integer quantityDispensed) {
+        this.quantityDispensed = quantityDispensed;
     }
 }

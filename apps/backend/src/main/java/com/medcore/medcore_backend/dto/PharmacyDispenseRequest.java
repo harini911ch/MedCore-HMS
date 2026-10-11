@@ -1,4 +1,3 @@
-
 package com.medcore.medcore_backend.dto;
 
 public class PharmacyDispenseRequest {
@@ -13,4 +12,3 @@ public class PharmacyDispenseRequest {
         this.quantity = quantity;
     }
 }
-

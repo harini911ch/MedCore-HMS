@@ -5,6 +5,7 @@ import com.medcore.medcore_backend.dto.PharmacyBatchRequest;
 import com.medcore.medcore_backend.dto.PharmacyBatchResponse;
 import com.medcore.medcore_backend.dto.PharmacyDispenseRequest;
 import com.medcore.medcore_backend.dto.PharmacyDispenseResponse;
+import com.medcore.medcore_backend.dto.PharmacyPrescriptionDispenseRequest;
 import com.medcore.medcore_backend.service.PharmacyBatchService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -64,6 +65,20 @@ public class PharmacyBatchController {
         );
     }
 
+    @PostMapping("/batches/{batchId}/dispense-prescription")
+    public ResponseEntity<PharmacyDispenseResponse>
+    dispenseAgainstPrescription(
+            @PathVariable UUID batchId,
+            @RequestBody PharmacyPrescriptionDispenseRequest request
+    ) {
+        return ResponseEntity.ok(
+                pharmacyBatchService.dispenseAgainstPrescription(
+                        batchId,
+                        request
+                )
+        );
+    }
+
     @GetMapping("/dispenses/hospital/{hospitalId}")
     public ResponseEntity<List<PharmacyDispenseResponse>>
     getDispensingHistory(
@@ -74,4 +89,3 @@ public class PharmacyBatchController {
         );
     }
 }
-

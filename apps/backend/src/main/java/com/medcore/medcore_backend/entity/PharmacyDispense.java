@@ -8,17 +8,13 @@ import java.util.UUID;
 
 @Entity
 @Table(
-        name = "pharmacy_dispenses",
-        indexes = {
-                @Index(
-                        name = "idx_pharmacy_dispense_batch",
-                        columnList = "batch_id"
-                ),
-                @Index(
-                        name = "idx_pharmacy_dispense_date",
-                        columnList = "dispensed_at"
-                )
-        }
+    name = "pharmacy_dispenses",
+    indexes = {
+        @Index(name = "idx_pharmacy_dispense_batch", columnList = "batch_id"),
+        @Index(name = "idx_pharmacy_dispense_date", columnList = "dispensed_at"),
+        @Index(name = "idx_pharmacy_dispense_prescription_item",
+               columnList = "prescription_item_id")
+    }
 )
 public class PharmacyDispense {
 
@@ -29,6 +25,10 @@ public class PharmacyDispense {
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "batch_id", nullable = false)
     private PharmacyBatch batch;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "prescription_item_id")
+    private PrescriptionItem prescriptionItem;
 
     @Column(name = "quantity_dispensed", nullable = false)
     private Integer quantityDispensed;
@@ -56,6 +56,14 @@ public class PharmacyDispense {
 
     public void setBatch(PharmacyBatch batch) {
         this.batch = batch;
+    }
+
+    public PrescriptionItem getPrescriptionItem() {
+        return prescriptionItem;
+    }
+
+    public void setPrescriptionItem(PrescriptionItem prescriptionItem) {
+        this.prescriptionItem = prescriptionItem;
     }
 
     public Integer getQuantityDispensed() {
