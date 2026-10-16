@@ -7,15 +7,20 @@ import com.medcore.medcore_backend.entity.Doctor;
 import com.medcore.medcore_backend.entity.Hospital;
 import com.medcore.medcore_backend.entity.MedicalRecord;
 import com.medcore.medcore_backend.entity.Patient;
+import com.medcore.medcore_backend.entity.Role;
+import com.medcore.medcore_backend.entity.User;
 import com.medcore.medcore_backend.entity.Vital;
 import com.medcore.medcore_backend.repository.AppointmentRepository;
 import com.medcore.medcore_backend.repository.DoctorRepository;
 import com.medcore.medcore_backend.repository.HospitalRepository;
 import com.medcore.medcore_backend.repository.MedicalRecordRepository;
 import com.medcore.medcore_backend.repository.PatientRepository;
+import com.medcore.medcore_backend.repository.UserRepository;
 import com.medcore.medcore_backend.repository.VitalRepository;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.UUID;
@@ -29,6 +34,7 @@ public class MedicalRecordService {
     private final PatientRepository patientRepository;
     private final DoctorRepository doctorRepository;
     private final AppointmentRepository appointmentRepository;
+    private final UserRepository userRepository;
 
     public MedicalRecordService(
             MedicalRecordRepository medicalRecordRepository,
@@ -36,7 +42,8 @@ public class MedicalRecordService {
             HospitalRepository hospitalRepository,
             PatientRepository patientRepository,
             DoctorRepository doctorRepository,
-            AppointmentRepository appointmentRepository
+            AppointmentRepository appointmentRepository,
+            UserRepository userRepository
     ) {
         this.medicalRecordRepository = medicalRecordRepository;
         this.vitalRepository = vitalRepository;
@@ -44,63 +51,149 @@ public class MedicalRecordService {
         this.patientRepository = patientRepository;
         this.doctorRepository = doctorRepository;
         this.appointmentRepository = appointmentRepository;
+        this.userRepository = userRepository;
+    }
+
+    private User requireUser(String email) {
+        return userRepository.findByEmail(email)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.UNAUTHORIZED, "Authenticated user not found"
+                ));
+    }
+
+    private void forbid() {
+        throw new ResponseStatusException(
+                HttpStatus.FORBIDDEN, "You are not authorized to access this medical record"
+        );
+    }
+
+    private UUID hospitalIdOf(User user) {
+        return user.getHospital() == null ? null : user.getHospital().getId();
+    }
+
+    private boolean sameId(UUID first, UUID second) {
+        return first != null && first.equals(second);
+    }
+
+    private boolean ownsPatient(User user, Patient patient) {
+        return patient.getUser() != null
+                && sameId(patient.getUser().getId(), user.getId());
+    }
+
+    private boolean ownsDoctor(User user, Doctor doctor) {
+        return doctor != null
+                && doctor.getUser() != null
+                && sameId(doctor.getUser().getId(), user.getId());
+    }
+
+    private boolean sameHospital(User user, Hospital hospital) {
+        return hospital != null
+                && sameId(hospitalIdOf(user), hospital.getId());
+    }
+
+    private void authorizeRecordRead(User user, MedicalRecord record) {
+        if (user.getRole() == Role.PATIENT) {
+            if (ownsPatient(user, record.getPatient())) {
+                return;
+            }
+            forbid();
+        }
+
+        if (user.getRole() == Role.DOCTOR) {
+            if (ownsDoctor(user, record.getDoctor())) {
+                return;
+            }
+            forbid();
+        }
+
+        if (user.getRole() == Role.HOSPITAL_ADMIN) {
+            if (sameHospital(user, record.getHospital())) {
+                return;
+            }
+            forbid();
+        }
+
+        forbid();
+    }
+
+    private MedicalRecordResponse toResponse(MedicalRecord record) {
+        Vital vital = vitalRepository
+                .findByMedicalRecordId(record.getId())
+                .orElse(null);
+
+        return MedicalRecordResponse.fromEntity(record, vital);
     }
 
     @Transactional
     public MedicalRecordResponse createMedicalRecord(
-            MedicalRecordRequest request
+            MedicalRecordRequest request,
+            String authenticatedEmail
     ) {
+        User user = requireUser(authenticatedEmail);
+
+        if (user.getRole() != Role.DOCTOR) {
+            forbid();
+        }
+
+        Doctor authenticatedDoctor = doctorRepository.findByUserId(user.getId())
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.FORBIDDEN, "No doctor profile is linked to this account"
+                ));
+
+        if (request.getHospitalId() == null
+                || !sameId(request.getHospitalId(), authenticatedDoctor.getHospital().getId())) {
+            forbid();
+        }
+
         Hospital hospital = hospitalRepository.findById(request.getHospitalId())
-                .orElseThrow(() -> new RuntimeException("Hospital not found"));
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Hospital not found"
+                ));
+
+        if (request.getPatientId() == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST, "Patient ID is required"
+            );
+        }
 
         Patient patient = patientRepository
                 .findByIdAndDeletedAtIsNull(request.getPatientId())
-                .orElseThrow(() -> new RuntimeException("Patient not found"));
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Patient not found"
+                ));
 
-        Doctor doctor = doctorRepository.findById(request.getDoctorId())
-                .orElseThrow(() -> new RuntimeException("Doctor not found"));
-
-        if (!patient.getHospital().getId().equals(hospital.getId())) {
-            throw new RuntimeException(
-                    "Patient does not belong to this hospital"
+        if (!sameId(patient.getHospital().getId(), hospital.getId())) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST, "Patient does not belong to this hospital"
             );
         }
 
-        if (!doctor.getHospital().getId().equals(hospital.getId())) {
-            throw new RuntimeException(
-                    "Doctor does not belong to this hospital"
-            );
-        }
+        // Use the authenticated doctor's profile, never a client-supplied doctor ID.
+        Doctor doctor = authenticatedDoctor;
 
         Appointment appointment = null;
 
         if (request.getAppointmentId() != null) {
-            appointment = appointmentRepository.findById(
-                    request.getAppointmentId()
-            ).orElseThrow(() ->
-                    new RuntimeException("Appointment not found")
-            );
+            appointment = appointmentRepository.findById(request.getAppointmentId())
+                    .orElseThrow(() -> new ResponseStatusException(
+                            HttpStatus.NOT_FOUND, "Appointment not found"
+                    ));
 
-            if (!appointment.getPatient().getId().equals(patient.getId())) {
-                throw new RuntimeException(
-                        "Appointment does not belong to this patient"
-                );
-            }
-
-            if (!appointment.getDoctor().getId().equals(doctor.getId())) {
-                throw new RuntimeException(
-                        "Appointment does not belong to this doctor"
+            if (!sameId(appointment.getPatient().getId(), patient.getId())
+                    || !sameId(appointment.getDoctor().getId(), doctor.getId())
+                    || !sameId(appointment.getHospital().getId(), hospital.getId())) {
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "Appointment must belong to this patient, doctor, and hospital"
                 );
             }
         }
 
         MedicalRecord record = new MedicalRecord();
-
         record.setHospital(hospital);
         record.setPatient(patient);
         record.setDoctor(doctor);
         record.setAppointment(appointment);
-
         record.setChiefComplaints(request.getChiefComplaints());
         record.setSymptoms(request.getSymptoms());
         record.setDiagnoses(request.getDiagnoses());
@@ -109,24 +202,20 @@ public class MedicalRecordService {
         record.setVaccinationHistory(request.getVaccinationHistory());
         record.setFamilyHistory(request.getFamilyHistory());
 
-        MedicalRecord savedRecord =
-                medicalRecordRepository.save(record);
+        MedicalRecord savedRecord = medicalRecordRepository.save(record);
 
         boolean hasVitals =
                 request.getTemperature() != null
-                        || request.getHeartRate() != null
-                        || request.getSystolicBp() != null
-                        || request.getDiastolicBp() != null
-                        || request.getRespiratoryRate() != null
-                        || request.getOxygenSaturation() != null
-                        || request.getWeight() != null
-                        || request.getHeight() != null;
-
-        Vital savedVital = null;
+                || request.getHeartRate() != null
+                || request.getSystolicBp() != null
+                || request.getDiastolicBp() != null
+                || request.getRespiratoryRate() != null
+                || request.getOxygenSaturation() != null
+                || request.getWeight() != null
+                || request.getHeight() != null;
 
         if (hasVitals) {
             Vital vital = new Vital();
-
             vital.setMedicalRecord(savedRecord);
             vital.setTemperature(request.getTemperature());
             vital.setHeartRate(request.getHeartRate());
@@ -136,76 +225,125 @@ public class MedicalRecordService {
             vital.setOxygenSaturation(request.getOxygenSaturation());
             vital.setWeight(request.getWeight());
             vital.setHeight(request.getHeight());
-
-            savedVital = vitalRepository.save(vital);
+            vitalRepository.save(vital);
         }
 
-        return MedicalRecordResponse.fromEntity(
-                savedRecord,
-                savedVital
-        );
+        return toResponse(savedRecord);
     }
 
     @Transactional(readOnly = true)
-    public MedicalRecordResponse getMedicalRecord(UUID recordId) {
+    public MedicalRecordResponse getMedicalRecord(
+            UUID recordId,
+            String authenticatedEmail
+    ) {
+        User user = requireUser(authenticatedEmail);
 
         MedicalRecord record = medicalRecordRepository.findById(recordId)
-                .orElseThrow(() ->
-                        new RuntimeException("Medical record not found")
-                );
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Medical record not found"
+                ));
 
-        Vital vital = vitalRepository
-                .findByMedicalRecordId(recordId)
-                .orElse(null);
-
-        return MedicalRecordResponse.fromEntity(record, vital);
+        authorizeRecordRead(user, record);
+        return toResponse(record);
     }
 
     @Transactional(readOnly = true)
     public List<MedicalRecordResponse> getPatientRecords(
-            UUID patientId
+            UUID patientId,
+            String authenticatedEmail
     ) {
-        return medicalRecordRepository
-                .findByPatientIdOrderByCreatedAtDesc(patientId)
-                .stream()
-                .map(record -> MedicalRecordResponse.fromEntity(
-                        record,
-                        vitalRepository
-                                .findByMedicalRecordId(record.getId())
-                                .orElse(null)
-                ))
-                .toList();
+        User user = requireUser(authenticatedEmail);
+
+        Patient patient = patientRepository.findByIdAndDeletedAtIsNull(patientId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Patient not found"
+                ));
+
+        if (user.getRole() == Role.PATIENT) {
+            if (!ownsPatient(user, patient)) {
+                forbid();
+            }
+        } else if (user.getRole() == Role.DOCTOR) {
+            Doctor doctor = doctorRepository.findByUserId(user.getId())
+                    .orElseThrow(() -> new ResponseStatusException(
+                            HttpStatus.FORBIDDEN, "No doctor profile is linked to this account"
+                    ));
+
+            if (!sameId(doctor.getHospital().getId(), patient.getHospital().getId())) {
+                forbid();
+            }
+        } else if (user.getRole() == Role.HOSPITAL_ADMIN) {
+            if (!sameId(hospitalIdOf(user), patient.getHospital().getId())) {
+                forbid();
+            }
+        } else {
+            forbid();
+        }
+
+        List<MedicalRecord> records =
+                medicalRecordRepository.findByPatientIdOrderByCreatedAtDesc(patientId);
+
+        if (user.getRole() == Role.DOCTOR) {
+            UUID doctorId = doctorRepository.findByUserId(user.getId())
+                    .orElseThrow(() -> new ResponseStatusException(
+                            HttpStatus.FORBIDDEN, "No doctor profile is linked to this account"
+                    )).getId();
+
+            records = records.stream()
+                    .filter(record -> sameId(record.getDoctor().getId(), doctorId))
+                    .toList();
+        }
+
+        return records.stream().map(this::toResponse).toList();
     }
 
     @Transactional(readOnly = true)
     public List<MedicalRecordResponse> getDoctorRecords(
-            UUID doctorId
+            UUID doctorId,
+            String authenticatedEmail
     ) {
+        User user = requireUser(authenticatedEmail);
+
+        Doctor requestedDoctor = doctorRepository.findById(doctorId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Doctor not found"
+                ));
+
+        if (user.getRole() == Role.DOCTOR) {
+            if (!ownsDoctor(user, requestedDoctor)) {
+                forbid();
+            }
+        } else if (user.getRole() == Role.HOSPITAL_ADMIN) {
+            if (!sameHospital(user, requestedDoctor.getHospital())) {
+                forbid();
+            }
+        } else {
+            forbid();
+        }
+
         return medicalRecordRepository
                 .findByDoctorIdOrderByCreatedAtDesc(doctorId)
                 .stream()
-                .map(record -> MedicalRecordResponse.fromEntity(
-                        record,
-                        vitalRepository
-                                .findByMedicalRecordId(record.getId())
-                                .orElse(null)
-                ))
+                .map(this::toResponse)
                 .toList();
     }
 
     @Transactional(readOnly = true)
     public List<MedicalRecordResponse> getHospitalRecords(
-            UUID hospitalId
+            UUID hospitalId,
+            String authenticatedEmail
     ) {
+        User user = requireUser(authenticatedEmail);
+
+        if (user.getRole() != Role.HOSPITAL_ADMIN
+                || !sameId(hospitalIdOf(user), hospitalId)) {
+            forbid();
+        }
+
         return medicalRecordRepository
                 .findByHospitalIdOrderByCreatedAtDesc(hospitalId)
                 .stream()
-                .map(record -> MedicalRecordResponse.fromEntity(
-                        record,
-                        vitalRepository
-                                .findByMedicalRecordId(record.getId())
-                                .orElse(null)
-                ))
+                .map(this::toResponse)
                 .toList();
     }
 }

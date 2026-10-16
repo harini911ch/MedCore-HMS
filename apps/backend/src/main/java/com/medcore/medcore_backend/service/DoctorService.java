@@ -106,4 +106,22 @@ public class DoctorService {
                 .map(DoctorResponse::new)
                 .toList();
     }
+
+public DoctorResponse getDoctorByUserEmail(String email) {
+    User user = userRepository.findByEmail(email)
+            .orElseThrow(() ->
+                    new RuntimeException("User not found")
+            );
+
+    if (user.getRole() != com.medcore.medcore_backend.entity.Role.DOCTOR) {
+        throw new RuntimeException("Account is not a doctor");
+    }
+
+    Doctor doctor = doctorRepository.findByUserId(user.getId())
+            .orElseThrow(() ->
+                    new RuntimeException("Doctor profile not found")
+            );
+
+    return new DoctorResponse(doctor);
+}
 }

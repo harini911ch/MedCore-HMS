@@ -57,8 +57,13 @@ public class AppointmentController {
     public ResponseEntity<List<AppointmentResponse>> getPatientAppointments(
             @PathVariable UUID patientId
     ) {
+        org.springframework.security.core.Authentication authentication =
+                org.springframework.security.core.context.SecurityContextHolder
+                        .getContext().getAuthentication();
+
         return ResponseEntity.ok(
-                appointmentService.getPatientAppointments(patientId)
+                appointmentService.getPatientAppointmentsForUser(
+                        authentication.getName(), patientId)
         );
     }
 
@@ -67,6 +72,8 @@ public class AppointmentController {
             @PathVariable UUID appointmentId,
             @RequestParam AppointmentStatus status
     ) {
+        requireAppointmentAdminRole();
+
         return ResponseEntity.ok(
                 appointmentService.updateStatus(
                         appointmentId,
@@ -79,7 +86,29 @@ public class AppointmentController {
     public ResponseEntity<Void> deleteAppointment(
             @PathVariable UUID appointmentId
     ) {
+        requireAppointmentAdminRole();
+
         appointmentService.softDelete(appointmentId);
         return ResponseEntity.noContent().build();
+    }
+
+    private void requireAppointmentAdminRole() {
+        org.springframework.security.core.Authentication authentication =
+                org.springframework.security.core.context.SecurityContextHolder
+                        .getContext().getAuthentication();
+
+        boolean authorized = authentication != null
+                && authentication.isAuthenticated()
+                && authentication.getAuthorities().stream()
+                        .anyMatch(authority ->
+                                authority.getAuthority().equals("ROLE_SUPER_ADMIN")
+                                || authority.getAuthority().equals("ROLE_HOSPITAL_ADMIN")
+                                || authority.getAuthority().equals("SUPER_ADMIN")
+                                || authority.getAuthority().equals("HOSPITAL_ADMIN"));
+
+        if (!authorized) {
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "Only hospital administrators can manage appointment status or deletion");
+        }
     }
 }

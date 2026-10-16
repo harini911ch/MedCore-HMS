@@ -55,24 +55,10 @@ public class AuthService {
             );
         }
 
-        Role role = request.getRole();
-
-        if (role == null) {
-            role = Role.PATIENT;
-        }
-
+        // Public registration must never grant privileged roles.
+        // Staff and hospital accounts require an authorized workflow.
+        Role role = Role.PATIENT;
         Hospital hospital = null;
-
-        if (request.getHospitalId() != null) {
-
-            hospital = hospitalRepository
-                    .findById(request.getHospitalId())
-                    .orElseThrow(() ->
-                            new RuntimeException(
-                                    "Hospital not found"
-                            )
-                    );
-        }
 
         User user = new User();
 

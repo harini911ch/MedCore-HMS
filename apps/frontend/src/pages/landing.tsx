@@ -1,35 +1,34 @@
-
 import { Link } from "react-router-dom";
 import "./landing.css";
 
 const features = [
   {
     number: "01",
+    icon: "calendar",
     title: "Appointments made simple",
     description:
-      "Book appointments, check schedules, and keep track of upcoming visits in one place.",
-    icon: "calendar",
+      "Book appointments, check schedules, and keep track of upcoming visits in one organized place.",
   },
   {
     number: "02",
+    icon: "records",
     title: "Connected medical records",
     description:
-      "Help authorized healthcare teams access patient histories, prescriptions, and clinical information.",
-    icon: "records",
+      "Give authorized healthcare teams a clearer view of patient histories and clinical information.",
   },
   {
     number: "03",
+    icon: "lab",
     title: "Laboratory and pharmacy",
     description:
-      "Manage lab orders, test results, medicine inventory, and prescription dispensing.",
-    icon: "lab",
+      "Organize laboratory orders, test results, prescriptions, and medicine inventory.",
   },
   {
     number: "04",
-    title: "Transparent billing",
-    description:
-      "Keep invoices, payments, and billing information organized throughout each visit.",
     icon: "billing",
+    title: "Simplified billing",
+    description:
+      "Keep invoices, payments, and billing information together throughout each visit.",
   },
 ];
 
@@ -73,8 +72,8 @@ function Landing() {
   return (
     <div className="landing-page">
       <header className="site-header">
-        <Link to="/" className="brand">
-          <span className="brand-mark">✚</span>
+        <Link to="/" className="brand" aria-label="MedCore home">
+          <span className="brand-mark" aria-hidden="true">✚</span>
           <span>
             <strong>MedCore</strong>
             <small>HOSPITAL MANAGEMENT</small>
@@ -88,9 +87,7 @@ function Landing() {
         </nav>
 
         <div className="header-actions">
-          <Link to="/login" className="login-link">
-            Log in
-          </Link>
+          <Link to="/login" className="login-link">Sign in</Link>
           <Link to="/register" className="button button-primary header-cta">
             Get started <span aria-hidden="true">↗</span>
           </Link>
@@ -102,7 +99,7 @@ function Landing() {
           <div className="hero-content">
             <div className="eyebrow">
               <span className="eyebrow-dot" />
-              A BETTER WAY TO MANAGE HEALTHCARE
+              A SMARTER WAY TO MANAGE HEALTHCARE
             </div>
 
             <h1>
@@ -121,13 +118,13 @@ function Landing() {
               <Link to="/register" className="button button-primary">
                 Explore MedCore <span aria-hidden="true">→</span>
               </Link>
-              <Link to="/login" className="button button-secondary">
-                Sign in to your account
-              </Link>
+              <a href="#features" className="button button-secondary">
+                Discover features
+              </a>
             </div>
 
             <div className="hero-trust">
-              <div className="trust-icon">✓</div>
+              <div className="trust-icon" aria-hidden="true">✓</div>
               <p>
                 <strong>One connected experience</strong>
                 <span>Designed around healthcare workflows</span>
@@ -136,38 +133,68 @@ function Landing() {
           </div>
 
           <div className="hero-visual">
-            <div className="hero-image-frame">
-              <img
-                src="https://images.unsplash.com/photo-1586773860418-d37222d8fce3?auto=format&fit=crop&w=1200&q=85"
-                alt="Modern hospital with a bright, welcoming healthcare environment"
-              />
-              <div className="image-tint" />
-
-              <div className="image-caption">
-                <span className="caption-symbol">✚</span>
-                <div>
-                  <strong>Care, connected.</strong>
-                  <p>People. Information. Better coordination.</p>
-                </div>
+            <div className="welcome-panel">
+              <div className="welcome-panel-top">
+                <div className="welcome-symbol" aria-hidden="true">✚</div>
+                <span className="welcome-label">
+                  YOUR HEALTHCARE, CONNECTED
+                </span>
               </div>
+
+              <div className="welcome-copy">
+                <span className="welcome-eyebrow">WELCOME TO MEDCORE</span>
+                <h2>Your healthcare journey starts here.</h2>
+                <p>
+                  A more connected healthcare experience. Sign in to continue,
+                  or create an account to get started.
+                </p>
+              </div>
+
+              <div className="welcome-actions">
+                <Link to="/register" className="button button-white">
+                  Create an account <span aria-hidden="true">→</span>
+                </Link>
+                <Link to="/login" className="welcome-login">
+                  Already registered? <strong>Sign in</strong>
+                </Link>
+              </div>
+
+              <div className="welcome-divider" />
+
+              <div className="welcome-footer">
+                <span className="welcome-footer-icon" aria-hidden="true">✓</span>
+                <p>
+                  <strong>Your account. Your access.</strong>
+                  <span>Features tailored to your permissions.</span>
+                </p>
+              </div>
+
+              <span className="welcome-decoration welcome-decoration-one" />
+              <span className="welcome-decoration welcome-decoration-two" />
+              <span className="welcome-cross" aria-hidden="true">✚</span>
             </div>
 
-            <div className="hero-floating-card">
-              <span className="floating-icon">♥</span>
-              <div>
+            <div className="floating-note floating-note-top">
+              <span className="floating-note-icon" aria-hidden="true">♡</span>
+              <span>
                 <strong>Care comes first</strong>
-                <p>Every step, more organized.</p>
-              </div>
+                <small>Every step, more organized</small>
+              </span>
             </div>
 
-            <div className="hero-decoration decoration-one" />
-            <div className="hero-decoration decoration-two" />
+            <div className="floating-note floating-note-bottom">
+              <span className="floating-note-icon floating-note-icon-blue" aria-hidden="true">⌘</span>
+              <span>
+                <strong>One connected platform</strong>
+                <small>People, records, and care</small>
+              </span>
+            </div>
           </div>
         </section>
 
         <section className="intro-strip" id="how-it-works">
           <div>
-            <span className="strip-label">ONE PLATFORM</span>
+            <span className="strip-label">ONE CONNECTED PLATFORM</span>
             <h2>Everything works better together.</h2>
           </div>
           <p>
@@ -190,45 +217,23 @@ function Landing() {
             {features.map((feature) => (
               <article className="feature-card" key={feature.number}>
                 <div className="feature-card-top">
-                  <div className="feature-icon">
+                  <div className={`feature-icon feature-icon-${feature.icon}`}>
                     <FeatureIcon type={feature.icon} />
                   </div>
                   <span className="feature-number">{feature.number}</span>
                 </div>
                 <h3>{feature.title}</h3>
                 <p>{feature.description}</p>
-                <span className="feature-arrow" aria-hidden="true">
-                  ↗
-                </span>
+                <span className="feature-arrow" aria-hidden="true">↗</span>
               </article>
             ))}
           </div>
-        </section>
-
-        <section className="cta-section">
-          <div className="cta-content">
-            <span className="eyebrow">YOUR HEALTHCARE JOURNEY STARTS HERE</span>
-            <h2>A more connected healthcare experience.</h2>
-            <p>
-              Sign in to continue, or create an account to get started.
-              Available features depend on your account and permissions.
-            </p>
-            <div className="hero-actions">
-              <Link to="/register" className="button button-white">
-                Create an account <span aria-hidden="true">→</span>
-              </Link>
-              <Link to="/login" className="cta-login">
-                Already registered? Log in
-              </Link>
-            </div>
-          </div>
-          <div className="cta-cross" aria-hidden="true">✚</div>
         </section>
       </main>
 
       <footer className="site-footer">
         <Link to="/" className="brand footer-brand">
-          <span className="brand-mark">✚</span>
+          <span className="brand-mark" aria-hidden="true">✚</span>
           <span>
             <strong>MedCore</strong>
             <small>HOSPITAL MANAGEMENT</small>

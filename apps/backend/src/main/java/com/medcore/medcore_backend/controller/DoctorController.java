@@ -7,6 +7,8 @@ import com.medcore.medcore_backend.service.DoctorService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.util.List;
 import java.util.UUID;
@@ -51,4 +53,16 @@ public class DoctorController {
                 doctorService.getDoctorsByDepartment(departmentId)
         );
     }
+
+@GetMapping("/me")
+public ResponseEntity<DoctorResponse> getMyDoctorProfile() {
+    Authentication authentication =
+            SecurityContextHolder.getContext().getAuthentication();
+
+    return ResponseEntity.ok(
+            doctorService.getDoctorByUserEmail(
+                    authentication.getName()
+            )
+    );
+}
 }

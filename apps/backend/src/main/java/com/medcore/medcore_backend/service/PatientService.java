@@ -117,4 +117,23 @@ public class PatientService {
 
         return new PatientResponse(patient);
     }
+
+public PatientResponse getPatientByUserEmail(String email) {
+    User user = userRepository.findByEmail(email)
+            .orElseThrow(() ->
+                    new RuntimeException("User not found")
+            );
+
+    if (user.getRole() != Role.PATIENT) {
+        throw new RuntimeException("Account is not a patient");
+    }
+
+    Patient patient = patientRepository
+            .findByUser_IdAndDeletedAtIsNull(user.getId())
+            .orElseThrow(() ->
+                    new RuntimeException("Patient profile not found")
+            );
+
+    return new PatientResponse(patient);
+}
 }

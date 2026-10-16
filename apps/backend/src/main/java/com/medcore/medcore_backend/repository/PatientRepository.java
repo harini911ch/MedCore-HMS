@@ -22,4 +22,5 @@ public interface PatientRepository
             UUID hospitalId,
             String patientNumber
     );
+Optional<Patient> findByUser_IdAndDeletedAtIsNull(UUID userId);
 }

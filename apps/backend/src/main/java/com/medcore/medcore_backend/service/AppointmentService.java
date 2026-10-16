@@ -2,15 +2,18 @@ package com.medcore.medcore_backend.service;
 
 import com.medcore.medcore_backend.dto.AppointmentRequest;
 import com.medcore.medcore_backend.dto.AppointmentResponse;
+import com.medcore.medcore_backend.dto.NotificationRequest;
 import com.medcore.medcore_backend.entity.Appointment;
 import com.medcore.medcore_backend.entity.AppointmentStatus;
 import com.medcore.medcore_backend.entity.Doctor;
 import com.medcore.medcore_backend.entity.Hospital;
 import com.medcore.medcore_backend.entity.Patient;
+import com.medcore.medcore_backend.entity.Notification;
 import com.medcore.medcore_backend.repository.AppointmentRepository;
 import com.medcore.medcore_backend.repository.DoctorRepository;
 import com.medcore.medcore_backend.repository.HospitalRepository;
 import com.medcore.medcore_backend.repository.PatientRepository;
+import com.medcore.medcore_backend.service.NotificationService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,17 +29,23 @@ public class AppointmentService {
     private final HospitalRepository hospitalRepository;
     private final DoctorRepository doctorRepository;
     private final PatientRepository patientRepository;
+    private final com.medcore.medcore_backend.repository.UserRepository userRepository;
+    private final NotificationService notificationService;
 
     public AppointmentService(
             AppointmentRepository appointmentRepository,
             HospitalRepository hospitalRepository,
             DoctorRepository doctorRepository,
-            PatientRepository patientRepository
+            PatientRepository patientRepository,
+            com.medcore.medcore_backend.repository.UserRepository userRepository,
+            NotificationService notificationService
     ) {
         this.appointmentRepository = appointmentRepository;
         this.hospitalRepository = hospitalRepository;
         this.doctorRepository = doctorRepository;
         this.patientRepository = patientRepository;
+        this.userRepository = userRepository;
+        this.notificationService = notificationService;
     }
 
     @Transactional
@@ -104,9 +113,37 @@ public class AppointmentService {
 
         appointment.setStatus(AppointmentStatus.PENDING);
 
-        return AppointmentResponse.fromEntity(
-                appointmentRepository.save(appointment)
+        Appointment savedAppointment = appointmentRepository.save(appointment);
+
+        NotificationRequest doctorNotification = new NotificationRequest();
+        doctorNotification.setRecipientUserId(doctor.getUser().getId());
+        doctorNotification.setType(Notification.Type.APPOINTMENT_CREATED);
+        doctorNotification.setTitle("New appointment scheduled");
+        doctorNotification.setMessage(
+                "Appointment with " + patient.getFullName()
+                        + " scheduled for " + savedAppointment.getAppointmentDate()
+                        + " at " + savedAppointment.getStartTime() + "."
         );
+        doctorNotification.setRelatedEntityType("APPOINTMENT");
+        doctorNotification.setRelatedEntityId(savedAppointment.getId());
+        notificationService.createNotification(doctorNotification);
+
+        if (patient.getUser() != null) {
+            NotificationRequest patientNotification = new NotificationRequest();
+            patientNotification.setRecipientUserId(patient.getUser().getId());
+            patientNotification.setType(Notification.Type.APPOINTMENT_CREATED);
+            patientNotification.setTitle("Appointment scheduled");
+            patientNotification.setMessage(
+                    "Your appointment is scheduled for "
+                            + savedAppointment.getAppointmentDate()
+                            + " at " + savedAppointment.getStartTime() + "."
+            );
+            patientNotification.setRelatedEntityType("APPOINTMENT");
+            patientNotification.setRelatedEntityId(savedAppointment.getId());
+            notificationService.createNotification(patientNotification);
+        }
+
+        return AppointmentResponse.fromEntity(savedAppointment);
     }
 
     public List<AppointmentResponse> getHospitalAppointments(UUID hospitalId) {
@@ -133,10 +170,31 @@ public class AppointmentService {
                 .toList();
     }
 
-    public List<AppointmentResponse> getPatientAppointments(UUID patientId) {
+    public List<AppointmentResponse> getPatientAppointmentsForUser(
+            String email,
+            UUID requestedPatientId
+    ) {
+        com.medcore.medcore_backend.entity.User user =
+                userRepository.findByEmail(email)
+                        .orElseThrow(() ->
+                                new RuntimeException("User not found"));
+
+        if (user.getRole() != com.medcore.medcore_backend.entity.Role.PATIENT) {
+            throw new RuntimeException("Only patients can access this endpoint");
+        }
+
+        Patient ownPatient = patientRepository
+                .findByUser_IdAndDeletedAtIsNull(user.getId())
+                .orElseThrow(() ->
+                        new RuntimeException("Patient profile not found"));
+
+        if (!ownPatient.getId().equals(requestedPatientId)) {
+            throw new RuntimeException(
+                    "You are not allowed to view these appointments");
+        }
 
         return appointmentRepository
-                .findByPatientIdAndDeletedAtIsNull(patientId)
+                .findByPatientIdAndDeletedAtIsNull(ownPatient.getId())
                 .stream()
                 .map(AppointmentResponse::fromEntity)
                 .toList();
@@ -157,9 +215,9 @@ public class AppointmentService {
 
         appointment.setStatus(status);
 
-        return AppointmentResponse.fromEntity(
-                appointmentRepository.save(appointment)
-        );
+        Appointment savedAppointment = appointmentRepository.save(appointment);
+
+        return AppointmentResponse.fromEntity(savedAppointment);
     }
 
     @Transactional
