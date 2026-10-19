@@ -36,3 +36,27 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+# Editor and troubleshooting backups
+*.bak
+*.before-*
+*.clickable-backup
+*.notifications-backup-*
+*.pre-*
+*.step4.bak
+
+# Temporary scripts, reports, and audit output
+*.py
+*-audit.txt
+frontend-report.txt
+lint-output.txt
+security-batch-source.txt
+System.Xml.XmlDocument
+
+# Local backup directories
+*-backup-*/
+security-backup-*/
+medical-record-security-backup-*/
+notification-security-backup-*/
+
+# Additional local backup files
+*.medical-records-backup

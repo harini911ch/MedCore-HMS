@@ -1,4 +1,4 @@
-﻿import { getAccessToken } from "./authService";
+import { getAccessToken } from "./authService";
 
 const API_BASE = "http://localhost:8081/api";
 
@@ -31,6 +31,21 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
+
+export interface HospitalOption {
+  id?: string;
+  hospitalId?: string;
+  name?: string;
+  hospitalName?: string;
+  displayName?: string;
+}
+
+export type HospitalListResponse =
+  | HospitalOption[]
+  | {
+      content?: HospitalOption[];
+      data?: HospitalOption[];
+    };
 
 export interface Medicine {
   id: string;
@@ -93,7 +108,7 @@ export interface BatchInput {
 }
 
 export const pharmacyService = {
-  getHospitals: () => request<any[]>("/hospitals"),
+  getHospitals: () => request<HospitalListResponse>("/hospitals"),
   getMedicines: (hospitalId: string) =>
     request<Medicine[]>(`/medicines/hospital/${hospitalId}`),
   createMedicine: (data: MedicineInput) =>

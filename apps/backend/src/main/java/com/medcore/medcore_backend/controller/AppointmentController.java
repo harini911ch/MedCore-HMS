@@ -53,6 +53,32 @@ public class AppointmentController {
         );
     }
 
+    @GetMapping("/doctor/me")
+    public ResponseEntity<List<AppointmentResponse>> getMyDoctorAppointments() {
+        org.springframework.security.core.Authentication authentication =
+                org.springframework.security.core.context.SecurityContextHolder
+                        .getContext().getAuthentication();
+
+        return ResponseEntity.ok(
+                appointmentService.getDoctorAppointmentsForUser(
+                        authentication.getName()));
+    }
+
+    @PatchMapping("/doctor/{appointmentId}/status")
+    public ResponseEntity<AppointmentResponse> updateDoctorAppointmentStatus(
+            @PathVariable UUID appointmentId,
+            @RequestParam AppointmentStatus status
+    ) {
+        org.springframework.security.core.Authentication authentication =
+                org.springframework.security.core.context.SecurityContextHolder
+                        .getContext().getAuthentication();
+
+        return ResponseEntity.ok(
+                appointmentService.updateDoctorAppointmentStatus(
+                        authentication.getName(),
+                        appointmentId,
+                        status));
+    }
     @GetMapping("/patient/{patientId}")
     public ResponseEntity<List<AppointmentResponse>> getPatientAppointments(
             @PathVariable UUID patientId

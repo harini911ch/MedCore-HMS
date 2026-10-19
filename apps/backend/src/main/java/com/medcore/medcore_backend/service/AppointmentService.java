@@ -50,6 +50,7 @@ public class AppointmentService {
 
     @Transactional
     public AppointmentResponse createAppointment(AppointmentRequest request) {
+        authorizeAppointmentCreation(request);
 
         if (request.getStartTime() == null || request.getEndTime() == null) {
             throw new RuntimeException("Start time and end time are required");
@@ -147,6 +148,7 @@ public class AppointmentService {
     }
 
     public List<AppointmentResponse> getHospitalAppointments(UUID hospitalId) {
+        authorizeHospitalAppointments(hospitalId);
 
         return appointmentRepository
                 .findByHospitalIdAndDeletedAtIsNull(hospitalId)
@@ -159,6 +161,7 @@ public class AppointmentService {
             UUID doctorId,
             LocalDate appointmentDate
     ) {
+        authorizeDoctorScheduleRead(doctorId);
 
         return appointmentRepository
                 .findByDoctorIdAndAppointmentDateAndDeletedAtIsNull(
@@ -170,6 +173,102 @@ public class AppointmentService {
                 .toList();
     }
 
+    @Transactional(readOnly = true)
+    public List<AppointmentResponse> getDoctorAppointmentsForUser(String email) {
+        com.medcore.medcore_backend.entity.User user =
+                userRepository.findByEmail(email)
+                        .orElseThrow(() ->
+                                new org.springframework.web.server.ResponseStatusException(
+                                        org.springframework.http.HttpStatus.UNAUTHORIZED,
+                                        "User not found"));
+
+        if (user.getRole() != com.medcore.medcore_backend.entity.Role.DOCTOR) {
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "Only doctors can access their clinical appointments");
+        }
+
+        Doctor ownDoctor = doctorRepository.findByUserId(user.getId())
+                .orElseThrow(() ->
+                        new org.springframework.web.server.ResponseStatusException(
+                                org.springframework.http.HttpStatus.NOT_FOUND,
+                                "Doctor profile not found"));
+
+        return appointmentRepository
+                .findByDoctorIdAndDeletedAtIsNull(ownDoctor.getId())
+                .stream()
+                .map(AppointmentResponse::fromEntity)
+                .toList();
+    }
+
+    @Transactional
+    public AppointmentResponse updateDoctorAppointmentStatus(
+            String email,
+            UUID appointmentId,
+            AppointmentStatus newStatus
+    ) {
+        com.medcore.medcore_backend.entity.User user =
+                userRepository.findByEmail(email)
+                        .orElseThrow(() ->
+                                new org.springframework.web.server.ResponseStatusException(
+                                        org.springframework.http.HttpStatus.UNAUTHORIZED,
+                                        "User not found"));
+
+        if (user.getRole() != com.medcore.medcore_backend.entity.Role.DOCTOR) {
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "Only doctors can update their own appointments");
+        }
+
+        Doctor ownDoctor = doctorRepository.findByUserId(user.getId())
+                .orElseThrow(() ->
+                        new org.springframework.web.server.ResponseStatusException(
+                                org.springframework.http.HttpStatus.NOT_FOUND,
+                                "Doctor profile not found"));
+
+        Appointment appointment = appointmentRepository.findById(appointmentId)
+                .orElseThrow(() ->
+                        new org.springframework.web.server.ResponseStatusException(
+                                org.springframework.http.HttpStatus.NOT_FOUND,
+                                "Appointment not found"));
+
+        if (appointment.getDeletedAt() != null) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.GONE,
+                    "Appointment has been deleted");
+        }
+
+        if (!appointment.getDoctor().getId().equals(ownDoctor.getId())) {
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "You can only update your own appointments");
+        }
+
+        if (newStatus == null) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST,
+                    "Appointment status is required");
+        }
+
+        AppointmentStatus current = appointment.getStatus();
+        boolean allowed =
+                (current == AppointmentStatus.PENDING
+                        && (newStatus == AppointmentStatus.CONFIRMED
+                            || newStatus == AppointmentStatus.CANCELLED))
+                || (current == AppointmentStatus.CONFIRMED
+                        && (newStatus == AppointmentStatus.IN_PROGRESS
+                            || newStatus == AppointmentStatus.CANCELLED))
+                || (current == AppointmentStatus.IN_PROGRESS
+                        && newStatus == AppointmentStatus.COMPLETED);
+
+        if (!allowed) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.CONFLICT,
+                    "Invalid appointment status transition: "
+                            + current + " to " + newStatus);
+        }
+
+        appointment.setStatus(newStatus);
+        return AppointmentResponse.fromEntity(
+                appointmentRepository.save(appointment));
+    }
     public List<AppointmentResponse> getPatientAppointmentsForUser(
             String email,
             UUID requestedPatientId
@@ -205,6 +304,7 @@ public class AppointmentService {
             UUID appointmentId,
             AppointmentStatus status
     ) {
+        authorizeAppointmentAdminById(appointmentId);
 
         Appointment appointment = appointmentRepository.findById(appointmentId)
                 .orElseThrow(() -> new RuntimeException("Appointment not found"));
@@ -222,6 +322,7 @@ public class AppointmentService {
 
     @Transactional
     public void softDelete(UUID appointmentId) {
+        authorizeAppointmentAdminById(appointmentId);
 
         Appointment appointment = appointmentRepository.findById(appointmentId)
                 .orElseThrow(() -> new RuntimeException("Appointment not found"));
@@ -229,5 +330,105 @@ public class AppointmentService {
         appointment.setDeletedAt(LocalDateTime.now());
 
         appointmentRepository.save(appointment);
+    }
+
+    private com.medcore.medcore_backend.entity.User requireAppointmentUser() {
+        var auth = org.springframework.security.core.context.SecurityContextHolder
+                .getContext().getAuthentication();
+
+        if (auth == null || !auth.isAuthenticated()
+                || "anonymousUser".equals(auth.getName())) {
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "Authentication required");
+        }
+
+        return userRepository.findByEmail(auth.getName())
+                .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.UNAUTHORIZED, "User not found"));
+    }
+
+    private boolean appointmentHospitalMatches(
+            com.medcore.medcore_backend.entity.User user, UUID hospitalId) {
+        return user.getHospital() != null && hospitalId != null
+                && hospitalId.equals(user.getHospital().getId());
+    }
+
+    private void authorizeAppointmentCreation(AppointmentRequest request) {
+        var user = requireAppointmentUser();
+        var role = user.getRole();
+
+        if (role == com.medcore.medcore_backend.entity.Role.SUPER_ADMIN) return;
+
+        if ((role == com.medcore.medcore_backend.entity.Role.HOSPITAL_ADMIN
+                || role == com.medcore.medcore_backend.entity.Role.RECEPTIONIST)
+                && appointmentHospitalMatches(user, request.getHospitalId())) return;
+
+        if (role == com.medcore.medcore_backend.entity.Role.PATIENT) {
+            Patient patient = patientRepository
+                    .findByUser_IdAndDeletedAtIsNull(user.getId())
+                    .orElseThrow(() -> new org.springframework.security.access.AccessDeniedException(
+                            "Patient profile not found"));
+            if (patient.getId().equals(request.getPatientId())) return;
+        }
+
+        throw new org.springframework.security.access.AccessDeniedException(
+                "Not permitted to create this appointment");
+    }
+
+    private void authorizeHospitalAppointments(UUID hospitalId) {
+        var user = requireAppointmentUser();
+        var role = user.getRole();
+
+        if (role == com.medcore.medcore_backend.entity.Role.SUPER_ADMIN) return;
+
+        if ((role == com.medcore.medcore_backend.entity.Role.HOSPITAL_ADMIN
+                || role == com.medcore.medcore_backend.entity.Role.RECEPTIONIST)
+                && appointmentHospitalMatches(user, hospitalId)) return;
+
+        throw new org.springframework.security.access.AccessDeniedException(
+                "Not permitted to view these appointments");
+    }
+
+    private void authorizeDoctorScheduleRead(UUID doctorId) {
+        var user = requireAppointmentUser();
+        var role = user.getRole();
+
+        Doctor doctor = doctorRepository.findById(doctorId)
+                .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.NOT_FOUND, "Doctor not found"));
+
+        if (role == com.medcore.medcore_backend.entity.Role.SUPER_ADMIN) return;
+
+        if ((role == com.medcore.medcore_backend.entity.Role.HOSPITAL_ADMIN
+                || role == com.medcore.medcore_backend.entity.Role.RECEPTIONIST)
+                && doctor.getHospital() != null
+                && appointmentHospitalMatches(user, doctor.getHospital().getId())) return;
+
+        if (role == com.medcore.medcore_backend.entity.Role.DOCTOR) {
+            Doctor ownDoctor = doctorRepository.findByUserId(user.getId())
+                    .orElseThrow(() -> new org.springframework.security.access.AccessDeniedException(
+                            "Doctor profile not found"));
+            if (ownDoctor.getId().equals(doctorId)) return;
+        }
+
+        throw new org.springframework.security.access.AccessDeniedException(
+                "Not permitted to view this doctor's schedule");
+    }
+
+    private void authorizeAppointmentAdminById(UUID appointmentId) {
+        var user = requireAppointmentUser();
+
+        Appointment appointment = appointmentRepository.findById(appointmentId)
+                .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.NOT_FOUND, "Appointment not found"));
+
+        if (user.getRole() == com.medcore.medcore_backend.entity.Role.SUPER_ADMIN) return;
+
+        if (user.getRole() == com.medcore.medcore_backend.entity.Role.HOSPITAL_ADMIN
+                && appointment.getHospital() != null
+                && appointmentHospitalMatches(user, appointment.getHospital().getId())) return;
+
+        throw new org.springframework.security.access.AccessDeniedException(
+                "Not permitted to manage this appointment");
     }
 }

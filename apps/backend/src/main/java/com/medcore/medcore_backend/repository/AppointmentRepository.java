@@ -38,5 +38,7 @@ public interface AppointmentRepository extends JpaRepository<Appointment, UUID> 
             LocalDate appointmentDate
     );
 
+    List<Appointment> findByDoctorIdAndDeletedAtIsNull(UUID doctorId);
+
     List<Appointment> findByPatientIdAndDeletedAtIsNull(UUID patientId);
 }

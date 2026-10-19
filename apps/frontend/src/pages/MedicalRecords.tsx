@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import { getUserRole } from "../services/authService";
+import { getMyDoctorProfile } from "../services/doctorService";
+import { getMyDoctorAppointments } from "../services/appointmentService";
 import { apiGet } from "../services/api";
 import { getHospitals } from "../services/hospitalService";
-import { getPatientsByHospital, type Patient } from "../services/patientService";
+import { getPatientsByHospital, getPatientById, type Patient } from "../services/patientService";
 import {
   createMedicalRecord,
   getMedicalRecordsByHospital,
+  getMedicalRecordsByDoctor,
   type MedicalRecord,
   type MedicalRecordRequest,
 } from "../services/medicalRecordService";
@@ -48,6 +53,9 @@ function displayDate(value?: string) {
 }
 
 export default function MedicalRecords() {
+  const [searchParams] = useSearchParams();
+  const requestedPatientId = searchParams.get("patientId");
+  const isDoctor = getUserRole() === "DOCTOR";
   const [hospitals, setHospitals] = useState<Hospital[]>([]);
   const [hospitalId, setHospitalId] = useState("");
   const [patients, setPatients] = useState<Patient[]>([]);
@@ -67,9 +75,20 @@ export default function MedicalRecords() {
   const loadHospitals = useCallback(async () => {
     setLoading(true);
     setError("");
+
     try {
+      if (getUserRole() === "DOCTOR") {
+        const profile = await getMyDoctorProfile();
+        setHospitals([
+          { id: profile.hospitalId, name: "My hospital" } as Hospital,
+        ]);
+        setHospitalId(profile.hospitalId);
+        return;
+      }
+
       const result = await getHospitals();
       setHospitals(result);
+
       if (result.length > 0) {
         setHospitalId((current) =>
           current && result.some((hospital) => hospital.id === current)
@@ -77,6 +96,7 @@ export default function MedicalRecords() {
             : result[0].id,
         );
       }
+
       if (result.length === 0) setLoading(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load hospitals.");
@@ -90,17 +110,55 @@ export default function MedicalRecords() {
 
   const loadHospitalData = useCallback(async () => {
     if (!hospitalId) return;
+
     setLoading(true);
     setError("");
     setNotice("");
     setSelectedRecord(null);
 
     try {
+      if (getUserRole() === "DOCTOR") {
+        const profile = await getMyDoctorProfile();
+        const [ownRecords, appointments] = await Promise.all([
+          getMedicalRecordsByDoctor(profile.id),
+          getMyDoctorAppointments(),
+        ]);
+
+        const patientIds = [...new Set(
+          appointments
+            .filter((appointment) => appointment.hospitalId === profile.hospitalId)
+            .map((appointment) => appointment.patientId)
+            .filter(Boolean),
+        )];
+
+        const patientResults = await Promise.allSettled(
+          patientIds.map((id) => getPatientById(id)),
+        );
+
+        const assignedPatients = patientResults
+          .filter((result): result is PromiseFulfilledResult<Patient> =>
+            result.status === "fulfilled",
+          )
+          .map((result) => result.value)
+          .filter((patient) => patient.hospitalId === profile.hospitalId);
+
+        setHospitalId(profile.hospitalId);
+        setPatients(assignedPatients);
+        setDoctors([profile]);
+        setForm((current) => ({
+          ...current,
+          doctorId: profile.id,
+        }));
+        setRecords(ownRecords);
+        return;
+      }
+
       const [patientResult, doctorResult, recordResult] = await Promise.all([
         getPatientsByHospital(hospitalId),
         apiGet<Doctor[]>(`doctors/hospital/${encodeURIComponent(hospitalId)}`),
         getMedicalRecordsByHospital(hospitalId),
       ]);
+
       setPatients(patientResult);
       setDoctors(doctorResult);
       setRecords(recordResult);
@@ -119,6 +177,18 @@ export default function MedicalRecords() {
     void loadHospitalData();
   }, [loadHospitalData]);
 
+
+
+  useEffect(() => {
+    setSelectedPatient(requestedPatientId || "all");
+
+    if (requestedPatientId) {
+      setForm((current) => ({
+        ...current,
+        patientId: requestedPatientId,
+      }));
+    }
+  }, [requestedPatientId]);
   const filteredRecords = useMemo(() => {
     const query = search.trim().toLowerCase();
     return records.filter((record) => {
@@ -213,20 +283,23 @@ export default function MedicalRecords() {
           <h1>Medical Records</h1>
           <p>Patient histories, clinical notes and vital signs in one place.</p>
         </div>
-        <button
-          className="medical-primary-button"
-          onClick={() => {
-            setError("");
-            setNotice("");
-            setForm(initialForm);
-            setShowForm((current) => !current);
-          }}
-          disabled={!hospitalId || loading}
-        >
-          {showForm ? "Close form" : "+ New medical record"}
-        </button>
+        <>
+          <button
+            className="medical-primary-button"
+            onClick={() => {
+              setError("");
+              setNotice("");
+              setForm(initialForm);
+              setShowForm((current) => !current);
+            }}
+            disabled={!hospitalId || loading}
+          >
+            {showForm ? "Close form" : "+ New medical record"}
+          </button>
+        </>
       </section>
 
+      {!isDoctor && (
       <section className="medical-stats">
   <button type="button" className="medical-stat-card medical-stat-clickable"
     onClick={() => document.getElementById("clinical-record-history")?.scrollIntoView({ behavior: "smooth", block: "start" })}>
@@ -235,17 +308,18 @@ export default function MedicalRecords() {
   </button>
   <button type="button" className="medical-stat-card medical-stat-clickable"
     onClick={() => setActiveDirectory("patients")}>
-    <span className="medical-stat-icon">♙</span>
+    <span className="medical-stat-icon">▤</span>
     <div><p>Registered patients</p><strong>{patients.length}</strong><small>View patient list →</small></div>
   </button>
   <button type="button" className="medical-stat-card medical-stat-clickable"
     onClick={() => setActiveDirectory("doctors")}>
-    <span className="medical-stat-icon">✚</span>
+    <span className="medical-stat-icon">▤</span>
     <div><p>Available doctors</p><strong>{doctors.length}</strong><small>View doctor list →</small></div>
   </button>
 </section>
+      )}
 
-{activeDirectory && (
+{!isDoctor && activeDirectory && (
   <div className="medical-directory-overlay" onClick={() => setActiveDirectory(null)}>
     <section className="medical-directory-modal" role="dialog" aria-modal="true"
       aria-labelledby="medical-directory-title" onClick={(event) => event.stopPropagation()}>
@@ -352,7 +426,7 @@ export default function MedicalRecords() {
             <div className="medical-vitals-heading"><h3>Vital signs</h3><span>All fields optional</span></div>
             <div className="medical-form-grid medical-vitals-grid">
               {([
-                ["temperature", "Temperature (°C)", "0.1"],
+                ["temperature", "Temperature (Â°C)", "0.1"],
                 ["heartRate", "Heart rate (bpm)", "1"],
                 ["systolicBp", "Systolic BP (mmHg)", "1"],
                 ["diastolicBp", "Diastolic BP (mmHg)", "1"],
@@ -386,21 +460,25 @@ export default function MedicalRecords() {
           <span className="medical-record-count">{filteredRecords.length} records</span>
         </div>
         <div className="medical-toolbar">
-          <label className="medical-hospital-select">
-            Hospital
-            <select value={hospitalId} onChange={(event) => setHospitalId(event.target.value)}>
-              {hospitals.map((hospital) => (
-                <option key={hospital.id} value={hospital.id}>{hospital.name}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Patient
-            <select value={selectedPatient} onChange={(event) => setSelectedPatient(event.target.value)}>
-              <option value="all">All patients</option>
-              {patients.map((patient) => <option key={patient.id} value={patient.id}>{patient.fullName}</option>)}
-            </select>
-          </label>
+          {!isDoctor && (
+            <label className="medical-hospital-select">
+              Hospital
+              <select value={hospitalId} onChange={(event) => setHospitalId(event.target.value)}>
+                {hospitals.map((hospital) => (
+                  <option key={hospital.id} value={hospital.id}>{hospital.name}</option>
+                ))}
+              </select>
+            </label>
+          )}
+          {!isDoctor && (
+            <label>
+              Patient
+              <select value={selectedPatient} onChange={(event) => setSelectedPatient(event.target.value)}>
+                <option value="all">All patients</option>
+                {patients.map((patient) => <option key={patient.id} value={patient.id}>{patient.fullName}</option>)}
+              </select>
+            </label>
+          )}
           <label className="medical-search">
             Search records
             <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Patient, doctor or diagnosis..." />
@@ -417,7 +495,7 @@ export default function MedicalRecords() {
             <span className="medical-empty-icon">▤</span>
             <h3>No medical records found</h3>
             <p>{records.length === 0 ? "No records have been created for this hospital yet." : "Try changing your search or patient filter."}</p>
-            {records.length === 0 && <button className="medical-primary-button" onClick={() => setShowForm(true)}>Create first record</button>}
+            {!isDoctor && records.length === 0 && <button className="medical-primary-button" onClick={() => setShowForm(true)}>Create first record</button>}
           </div>
         ) : (
           <div className="medical-record-list">
@@ -432,7 +510,7 @@ export default function MedicalRecords() {
                   <div className="medical-record-tags">
                     {record.diagnoses && <span>{record.diagnoses}</span>}
                     {record.chiefComplaints && <span>Complaint recorded</span>}
-                    {record.temperature != null && <span>{record.temperature} °C</span>}
+                    {record.temperature != null && <span>{record.temperature} Â°C</span>}
                     {record.heartRate != null && <span>{record.heartRate} bpm</span>}
                   </div>
                   <button className="medical-text-button" onClick={() => setSelectedRecord(record)}>View full record <span>→</span></button>
@@ -460,7 +538,7 @@ export default function MedicalRecords() {
                 ["Allergies", selectedRecord.allergies],
                 ["Vaccination history", selectedRecord.vaccinationHistory],
                 ["Family history", selectedRecord.familyHistory],
-                ["Temperature", selectedRecord.temperature == null ? null : `${selectedRecord.temperature} °C`],
+                ["Temperature", selectedRecord.temperature == null ? null : `${selectedRecord.temperature} Â°C`],
                 ["Heart rate", selectedRecord.heartRate == null ? null : `${selectedRecord.heartRate} bpm`],
                 ["Blood pressure", selectedRecord.systolicBp == null && selectedRecord.diastolicBp == null ? null : `${selectedRecord.systolicBp ?? "—"}/${selectedRecord.diastolicBp ?? "—"} mmHg`],
                 ["Respiratory rate", selectedRecord.respiratoryRate == null ? null : `${selectedRecord.respiratoryRate} breaths/min`],

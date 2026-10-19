@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { clearAuthSession, getUserId, getUserRole } from "../services/authService";
 import { getUnreadNotificationCount } from "../services/notificationService";
+import { getMyPatientProfile } from "../services/patientService";
 import "./AppLayout.css";
 
 interface AppLayoutProps {
@@ -50,6 +51,23 @@ const NAV_ITEMS: NavItem[] = [
   },
 ];
 
+function displayRole(role: string | null): string {
+  if (!role) return "User";
+
+  const labels: Record<string, string> = {
+    SUPER_ADMIN: "Super Admin",
+    HOSPITAL_ADMIN: "Hospital Admin",
+    LAB_TECHNICIAN: "Lab Technician",
+  };
+
+  if (labels[role]) return labels[role];
+
+  return role
+    .toLowerCase()
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
 function homeForRole(role: string | null): string {
   if (role === "SUPER_ADMIN" || role === "HOSPITAL_ADMIN") {
     return "/app/admin/dashboard";
@@ -71,8 +89,38 @@ export default function AppLayout({ children }: AppLayoutProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [softTheme, setSoftTheme] = useState(true);
   const [motionEnabled, setMotionEnabled] = useState(true);
+  const [accountName, setAccountName] = useState<string | null>(null);
 
   const homePath = homeForRole(role);
+
+  useEffect(() => {
+    if (role !== "PATIENT") {
+      setAccountName(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadAccountName = async () => {
+      try {
+        const patient = await getMyPatientProfile();
+
+        if (!cancelled) {
+          setAccountName(patient.fullName?.trim() || null);
+        }
+      } catch {
+        if (!cancelled) {
+          setAccountName(null);
+        }
+      }
+    };
+
+    void loadAccountName();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [role]);
 
   useEffect(() => {
     let cancelled = false;
@@ -116,6 +164,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
       : role === "DOCTOR"
         ? [
             { label: "My Dashboard", path: homePath, roles: ["DOCTOR"] },
+            { label: "Appointments", path: "/app/doctor/dashboard#doctor-appointments", roles: ["DOCTOR"] },
             ...NAV_ITEMS.filter((item) => item.roles.includes("DOCTOR")),
           ]
         : role && STAFF_ROLES.includes(role)
@@ -246,7 +295,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
               </span>
               <span className="app-profile-label">
                 <strong>My Account</strong>
-                <small>{role?.replaceAll("_", " ") ?? "User"}</small>
+                <small>{accountName ?? (role === "PATIENT" ? "My profile" : displayRole(role))}</small>
               </span>
               <span aria-hidden="true">{"\u2304"}</span>
             </button>
@@ -259,7 +308,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
                   </span>
                   <div>
                     <strong>My Account</strong>
-                    <p>{role?.replaceAll("_", " ") ?? "User"}</p>
+                    <p>{accountName ?? (role === "PATIENT" ? "My profile" : displayRole(role))}</p>
                   </div>
                 </div>
                 <button

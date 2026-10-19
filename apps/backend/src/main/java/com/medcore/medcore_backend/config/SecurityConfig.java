@@ -96,10 +96,9 @@ public class SecurityConfig {
 
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        .requestMatchers(
-                                "/api/auth/**",
-                                "/api/hospitals/**"
-                        ).permitAll()
+                        .requestMatchers("/api/auth/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/hospitals", "/api/hospitals/**").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/hospitals").hasRole("SUPER_ADMIN")
                         .anyRequest().authenticated()
                 )
 

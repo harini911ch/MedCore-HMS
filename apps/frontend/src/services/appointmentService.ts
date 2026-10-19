@@ -1,4 +1,4 @@
-﻿import { apiGet, apiPost, apiPatch } from "./api";
+import { apiGet, apiPost, apiPatch } from "./api";
 
 export interface Appointment {
   id: string;
@@ -55,5 +55,19 @@ export function getAppointmentsByPatient(
 ): Promise<Appointment[]> {
   return apiGet<Appointment[]>(
     `appointments/patient/${encodeURIComponent(patientId)}`,
+  );
+}
+
+
+export function getMyDoctorAppointments(): Promise<Appointment[]> {
+  return apiGet<Appointment[]>("appointments/doctor/me");
+}
+
+export function updateMyAppointmentStatus(
+  appointmentId: string,
+  status: string,
+): Promise<Appointment> {
+  return apiPatch<Appointment>(
+    `appointments/doctor/${encodeURIComponent(appointmentId)}/status?status=${encodeURIComponent(status)}`,
   );
 }
